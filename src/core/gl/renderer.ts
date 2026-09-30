@@ -54,9 +54,9 @@ void main() {
   float r = length(l);
   float a;
   if (u_shape == 0 || u_shape == 1) {        // glow / spark
-    float core = exp(-r * r * 9.0);
+    float core = exp(-r * r * 6.0);
     float halo = max(0.0, 1.0 - r);
-    a = core + halo * halo * 0.35;
+    a = core + halo * halo * 0.4;
   } else if (u_shape == 2) {                 // dot
     a = 1.0 - smoothstep(0.75, 1.0, r);
   } else if (u_shape == 3) {                 // snowflake

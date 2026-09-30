@@ -9,7 +9,7 @@ uniform vec2 u_flashPos;  // CSS px
 vec4 mainImage(vec2 uv) {
   vec3 c = camera(uv);
   // Night grade: darker, bluer, more contrast.
-  c = pow(c, vec3(1.25)) * vec3(0.62, 0.66, 0.85);
+  c = pow(c, vec3(1.35)) * vec3(0.5, 0.54, 0.75);
   vec2 px = toPx(uv);
   float d = length(px - u_flashPos) / u_resolution.y;
   float light = 0.35 + 0.65 * exp(-d * d * 6.0);
@@ -46,9 +46,10 @@ export default defineEffect({
   hint: 'Open your mouth to launch fireworks 🎆  Tap to aim',
   shader,
   create(ctx) {
-    const sparks = ctx.particles({ max: 4000, shape: 'spark', gravity: 160, drag: 1.1, stretch: 0.035, fadePower: 1.6 });
+    const sparks = ctx.particles({ max: 4000, shape: 'spark', gravity: 160, drag: 1.1, stretch: 0.045, fadePower: 1.4 });
     const trails = ctx.particles({ max: 1500, shape: 'glow', gravity: 30, drag: 2, fadePower: 1.2, endScale: 0.3 });
     const glitter = ctx.particles({ max: 1200, shape: 'star', gravity: 60, drag: 1.5, fadePower: 0.8 });
+    const flashes = ctx.particles({ max: 40, shape: 'glow', fadePower: 2, endScale: 1.6 });
     const rockets: Rocket[] = [];
     let nextAuto = 0.3;
     let flashX = 0;
@@ -79,7 +80,7 @@ export default defineEffect({
       const c2 = pick(PALETTE);
       switch (r.kind) {
         case 'peony':
-          sparks.burst(x, y, 140, 330, 1.4, 3, () => (Math.random() < 0.8 ? color : c2), 0.35);
+          sparks.burst(x, y, 150, 340, 1.4, 5.5, () => (Math.random() < 0.8 ? color : c2), 0.35);
           break;
         case 'ring': {
           const n = 90;
@@ -90,9 +91,9 @@ export default defineEffect({
             const vy = Math.sin(a) * 120;
             const c = Math.cos(tilt);
             const s = Math.sin(tilt);
-            sparks.emit(x, y, vx * c - vy * s, vx * s + vy * c, 1.3, 3, color);
+            sparks.emit(x, y, vx * c - vy * s, vx * s + vy * c, 1.3, 5.5, color);
           }
-          sparks.burst(x, y, 30, 90, 1, 2.5, 0xffffff);
+          sparks.burst(x, y, 30, 90, 1, 4.5, 0xffffff);
           break;
         }
         case 'heart': {
@@ -101,7 +102,7 @@ export default defineEffect({
             const t = (i / n) * TAU;
             const hx = 16 * Math.sin(t) ** 3;
             const hy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
-            sparks.emit(x, y, hx * 17, hy * 17, 1.5, 3.2, 0xff4d88);
+            sparks.emit(x, y, hx * 17, hy * 17, 1.5, 6, 0xff4d88);
           }
           break;
         }
@@ -109,7 +110,7 @@ export default defineEffect({
           for (let i = 0; i < 120; i++) {
             const a = rand(0, TAU);
             const s = rand(80, 260);
-            glitter.emit(x, y, Math.cos(a) * s, Math.sin(a) * s, rand(2, 3), rand(2.5, 4), 0xffcc55);
+            glitter.emit(x, y, Math.cos(a) * s, Math.sin(a) * s, rand(2, 3), rand(4, 6.5), 0xffcc55);
           }
           break;
         case 'palm':
@@ -117,12 +118,12 @@ export default defineEffect({
             const a = (arm / 8) * TAU + rand(-0.1, 0.1);
             for (let k = 0; k < 14; k++) {
               const s = 150 + k * 16;
-              sparks.emit(x, y, Math.cos(a) * s, Math.sin(a) * s - 40, 1.6, 3.5, k % 3 ? color : 0xffffff);
+              sparks.emit(x, y, Math.cos(a) * s, Math.sin(a) * s - 40, 1.6, 6, k % 3 ? color : 0xffffff);
             }
           }
           break;
         case 'crossette':
-          sparks.burst(x, y, 60, 260, 0.9, 3, color, 0.2);
+          sparks.burst(x, y, 60, 260, 0.9, 5.5, color, 0.2);
           // Secondary pops handled by delayed mini-rockets.
           for (let k = 0; k < 5; k++) {
             const a = (k / 5) * TAU + rand(0, 1);
@@ -139,7 +140,9 @@ export default defineEffect({
           }
           break;
       }
-      glitter.burst(x, y, 25, 200, 1.6, 2.5, 0xffffff, 0.8);
+      glitter.burst(x, y, 25, 200, 1.6, 4.5, 0xffffff, 0.8);
+      flashes.emit(x, y, 0, 0, 0.35, 70, color, 0.9);
+      flashes.emit(x, y, 0, 0, 0.18, 30, 0xffffff, 1);
       flashX = x;
       flashY = y;
       flash[0] = (((color >> 16) & 255) / 255) * 0.9;
@@ -177,7 +180,7 @@ export default defineEffect({
               rand(-20, 20),
               rand(-60, -10),
               rand(0.5, 1),
-              rand(2, 4),
+              rand(3.5, 6),
               pick([0xffe066, 0xffffff, 0xff99cc]),
             );
           }
@@ -188,11 +191,12 @@ export default defineEffect({
           r.vy += (mini ? 300 : ROCKET_G) * dt;
           r.x += r.vx * dt;
           r.y += r.vy * dt;
-          trails.emit(r.x, r.y, rand(-15, 15), rand(10, 40), mini ? 0.25 : 0.45, mini ? 3 : 4.5, mini ? r.color : 0xffc070, 0.9);
+          trails.emit(r.x, r.y, rand(-15, 15), rand(10, 40), mini ? 0.3 : 0.5, mini ? 4.5 : 7, mini ? r.color : 0xffc070, 0.9);
           if (r.vy >= (mini ? 60 : 0)) {
             r.alive = false;
             if (mini) {
-              sparks.burst(r.x, r.y, 26, 140, 0.8, 2.5, r.color, 0.4);
+              sparks.burst(r.x, r.y, 26, 140, 0.8, 4.5, r.color, 0.4);
+              flashes.emit(r.x, r.y, 0, 0, 0.2, 30, r.color, 0.7);
               flash[0] += 0.1;
             } else explode(r);
           }
