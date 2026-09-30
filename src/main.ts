@@ -24,9 +24,14 @@ function toast(msg: string, ms = 1800) {
   clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => (toastEl.hidden = true), ms);
 }
-function hint(msg: string | null) {
+let hintTimer = 0;
+/** Show a hint for a few seconds (null hides it). */
+function hint(msg: string | null, ms = 4500) {
+  clearTimeout(hintTimer);
   hintEl.hidden = !msg;
-  if (msg) hintEl.textContent = msg;
+  if (!msg) return;
+  hintEl.textContent = msg;
+  hintTimer = window.setTimeout(() => (hintEl.hidden = true), ms);
 }
 
 const engine = new Engine($<HTMLCanvasElement>('gl'), $<HTMLCanvasElement>('overlay'), settings, { toast, hint });
@@ -218,7 +223,7 @@ async function start() {
   ui.hidden = false;
   carousel.select(initialEffectIndex());
   if (!trackerReady) {
-    hint('Loading face tracker…');
+    hint('Loading face tracker…', 60_000);
     await trackerPromise;
     hint(engine.currentEffect?.hint ?? null);
   }

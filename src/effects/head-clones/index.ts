@@ -29,7 +29,7 @@ export default defineEffect({
           const ex = Math.cos(a) * face.width * 1.35;
           const ey = Math.sin(a) * face.height * 0.28;
           const x = face.cx + ex * c - ey * s;
-          const y = face.cy - face.height * 0.1 + ex * s + ey * c;
+          const y = face.cy - face.height * 0.3 + ex * s + ey * c;
           pos[i * 3] = x;
           pos[i * 3 + 1] = y;
           pos[i * 3 + 2] = Math.sin(a); // > 0: in front of the head

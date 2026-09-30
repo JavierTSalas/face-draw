@@ -97,7 +97,7 @@ a.primary {
 
 #hud {
   position: absolute;
-  top: calc(var(--safe-top) + 58px);
+  bottom: calc(var(--safe-bottom) + 175px);
   left: 12px;
   margin: 0;
   padding: 8px 10px;
