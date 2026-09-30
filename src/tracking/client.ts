@@ -20,6 +20,8 @@ export interface Tracker {
   /** Analyse one frame. The same bitmap is returned with the result. */
   track(bitmap: ImageBitmap, ts: number, wantMask: boolean): Promise<TrackOutput>;
   setNumFaces(n: number): void;
+  /** Load optional models (segmentation) in the background. */
+  preload(): void;
   dispose(): void;
   /** Non-fatal tracker messages (errors, delegate switches). */
   onNotice: (msg: string) => void;
@@ -102,6 +104,10 @@ class WorkerTracker implements Tracker {
     this.post({ type: 'numFaces', numFaces: n });
   }
 
+  preload() {
+    this.post({ type: 'preload' });
+  }
+
   dispose() {
     this.worker.terminate();
     this.fail(new Error('Tracker disposed'));
@@ -133,6 +139,10 @@ class MainThreadTracker implements Tracker {
 
   setNumFaces(n: number) {
     this.core.setNumFaces(n).catch((err) => console.warn(err));
+  }
+
+  preload() {
+    this.core.preload();
   }
 
   dispose() {}

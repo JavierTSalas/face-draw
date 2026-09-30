@@ -37,6 +37,8 @@ export class TrackerCore {
   private lastTs = 0;
   private maskAccum: Float32Array | null = null;
   private blendMap: number[] | null = null;
+  private segFrame = 0;
+  private lastSegMs = 0;
 
   constructor(
     private init: TrackerInit,
@@ -81,6 +83,11 @@ export class TrackerCore {
     await this.landmarker.setOptions({ numFaces: n });
   }
 
+  /** Load the segmentation model ahead of time (idempotent). */
+  preload() {
+    return this.loadSegmenter();
+  }
+
   private async loadSegmenter() {
     if (this.segLoading || this.segmenter || this.segFailed) return;
     this.segLoading = true;
@@ -122,10 +129,12 @@ export class TrackerCore {
 
     if (wantMask) {
       if (!this.segmenter) this.loadSegmenter();
-      else {
+      else if (this.lastSegMs < 8 || (this.segFrame++ & 1) === 0) {
+        // On slow devices segment every other frame; the renderer keeps the
+        // previous mask, and masks are smoothed anyway.
         const s0 = performance.now();
         this.segment(image, ts, out);
-        out.segMs = performance.now() - s0;
+        out.segMs = this.lastSegMs = performance.now() - s0;
       }
     } else {
       this.maskAccum = null;

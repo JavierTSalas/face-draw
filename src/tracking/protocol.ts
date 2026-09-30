@@ -97,7 +97,8 @@ export interface TrackResult {
 export type ToWorker =
   | { type: 'init'; init: TrackerInit }
   | { type: 'frame'; bitmap: ImageBitmap; ts: number; wantMask: boolean }
-  | { type: 'numFaces'; numFaces: number };
+  | { type: 'numFaces'; numFaces: number }
+  | { type: 'preload' };
 
 export type FromWorker =
   | { type: 'ready'; delegate: Delegate }

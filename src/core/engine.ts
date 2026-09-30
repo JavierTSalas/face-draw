@@ -258,10 +258,13 @@ export class Engine {
   }
 
   /**
-   * Compile effect shaders ahead of time, one per idle slot, so switching
-   * effects never stalls a frame on shader compilation.
+   * Prepare everything an effect switch could need: compile effect shaders
+   * one per idle slot and preload optional models, so switching effects never
+   * stalls a frame.
    */
   warmUp(defs: readonly EffectDefinition[]) {
+    // Segmentation model: fetch and initialise it before Fire/Freeze need it.
+    window.setTimeout(() => this.tracker?.preload(), 2500);
     const r = this.renderer;
     if (!r) return;
     const queue = defs.filter((d) => d.shader).map((d) => d.shader!);

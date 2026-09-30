@@ -68,6 +68,10 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       post({ type: 'result', bitmap, result }, [bitmap, ...resultTransferables(result)]);
       break;
     }
+    case 'preload': {
+      core?.preload();
+      break;
+    }
     case 'numFaces': {
       core?.setNumFaces(msg.numFaces).catch((err) => console.warn(err));
       break;
