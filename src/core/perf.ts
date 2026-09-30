@@ -60,7 +60,8 @@ export class AdaptiveScale {
     else this.refreshMs += (Math.min(dtMs, 1000 / 30) - this.refreshMs) * 0.001;
     const avg = this.frameMs.push(dtMs);
     if (now - this.lastChange < 1500) return false;
-    const budget = this.refreshMs;
+    // Aim for at least 60 fps; on 120 Hz screens a steady 60 is fine.
+    const budget = Math.max(this.refreshMs, 1000 / 60);
     if (avg > budget * 1.3 && this.scale > this.min) {
       this.scale = Math.max(this.min, this.scale - 0.15);
       this.lastChange = now;

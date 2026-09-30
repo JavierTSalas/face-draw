@@ -115,6 +115,12 @@ export class Engine {
     window.addEventListener('resize', () => (this.needsResize = true));
     window.visualViewport?.addEventListener('resize', () => (this.needsResize = true));
     this.camera.onFrame = () => this.pump();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        this.camera.resume();
+        this.last = performance.now();
+      }
+    });
   }
 
   get currentEffect() {
@@ -165,6 +171,15 @@ export class Engine {
       numFaces: this.numFaces,
     });
     this.tracker = tracker;
+    // The effect may have changed the face count while the model loaded.
+    tracker.setNumFaces(this.numFaces);
+    tracker.onNotice = (msg) => {
+      console.warn('[tracker]', msg);
+      if (tracker.delegate !== this.stats.delegate) {
+        this.stats.delegate = tracker.delegate;
+        this.ui.toast(msg);
+      }
+    };
     this.stats.delegate = tracker.delegate;
     this.stats.mode = tracker.mode;
     this.pump();

@@ -10,6 +10,7 @@ export class Camera {
   private stream: MediaStream | null = null;
   private lastTime = -1;
   private usingRvfc = false;
+  private generation = 0;
   onFrame: () => void = () => {};
 
   constructor() {
@@ -47,6 +48,11 @@ export class Camera {
     this.watchFrames();
   }
 
+  /** Mobile browsers pause the video in the background; resume it. */
+  resume() {
+    if (this.stream && this.video.paused) this.video.play().catch(() => {});
+  }
+
   stop() {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
@@ -58,7 +64,10 @@ export class Camera {
     };
     if (typeof v.requestVideoFrameCallback === 'function') {
       this.usingRvfc = true;
+      // One callback chain per start(); older chains stop themselves.
+      const gen = ++this.generation;
       const tick = () => {
+        if (gen !== this.generation) return;
         this.frameId++;
         this.onFrame();
         v.requestVideoFrameCallback!(tick);

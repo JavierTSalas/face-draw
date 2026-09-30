@@ -21,13 +21,15 @@ export interface Tracker {
   track(bitmap: ImageBitmap, ts: number, wantMask: boolean): Promise<TrackOutput>;
   setNumFaces(n: number): void;
   dispose(): void;
+  /** Non-fatal tracker messages (errors, delegate switches). */
+  onNotice: (msg: string) => void;
 }
 
 class WorkerTracker implements Tracker {
   readonly mode = 'worker' as const;
   delegate: Delegate = 'GPU';
   private pending: ((o: TrackOutput) => void) | null = null;
-  onError: (msg: string) => void = () => {};
+  onNotice: (msg: string) => void = () => {};
 
   private constructor(private worker: Worker) {}
 
@@ -68,12 +70,16 @@ class WorkerTracker implements Tracker {
   }
 
   private handle(msg: FromWorker) {
-    if (msg.type === 'result') {
+    if (msg.type === 'ready') {
+      // The worker switched delegate at runtime (GPU -> CPU fallback).
+      this.delegate = msg.delegate;
+      this.onNotice(`Face tracker switched to ${msg.delegate}`);
+    } else if (msg.type === 'result') {
       const p = this.pending;
       this.pending = null;
       p?.({ bitmap: msg.bitmap, result: msg.result });
     } else if (msg.type === 'error') {
-      this.onError(msg.message);
+      this.onNotice(msg.message);
     }
   }
 
@@ -96,6 +102,7 @@ class WorkerTracker implements Tracker {
 class MainThreadTracker implements Tracker {
   readonly mode = 'main-thread' as const;
   delegate: Delegate = 'GPU';
+  onNotice: (msg: string) => void = () => {};
   private core!: import('./core').TrackerCore;
 
   static async create(init: TrackerInit): Promise<MainThreadTracker> {

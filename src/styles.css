@@ -50,13 +50,11 @@ a.primary {
   display: block;
 }
 
+/* The UI layer lets taps through to the stage except on actual controls. */
 #ui {
   position: fixed;
   inset: 0;
   pointer-events: none;
-}
-#ui > * {
-  pointer-events: auto;
 }
 
 .topbar {
