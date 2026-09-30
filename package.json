@@ -8,15 +8,18 @@
   "scripts": {
     "postinstall": "node scripts/copy-wasm.mjs",
     "dev": "node scripts/copy-wasm.mjs && vite --host",
-    "build": "node scripts/copy-wasm.mjs && tsc --noEmit && vite build",
+    "dev:phone": "node scripts/copy-wasm.mjs && vite --host --mode phone",
+    "build": "node scripts/copy-wasm.mjs && npm run typecheck && vite build",
     "preview": "vite preview --host",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "topology": "node scripts/gen-topology.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1"
   },
   "devDependencies": {
+    "@types/node": "^22.20.4",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
   },

@@ -16,6 +16,8 @@ const MAX_FACES = 4;
 
 export interface EngineStats {
   fps: number;
+  /** Main-thread time spent per frame (effect update + draw + GL submit). */
+  cpuMs: number;
   trackFps: number;
   faceMs: number;
   segMs: number;
@@ -44,6 +46,7 @@ export class Engine {
   readonly sfx = new Sfx();
   readonly stats: EngineStats = {
     fps: 0,
+    cpuMs: 0,
     trackFps: 0,
     faceMs: 0,
     segMs: 0,
@@ -78,6 +81,7 @@ export class Engine {
   private trackFps = new RateMeter();
   private faceMs = new Ema(0.1);
   private segMs = new Ema(0.1);
+  private cpuMs = new Ema(0.05);
   private adaptive = new AdaptiveScale(0.6, 1.5);
   private photoRequest: ((b: Blob | null) => void) | null = null;
   private running = false;
@@ -367,6 +371,7 @@ export class Engine {
 
   private tick = (now: number) => {
     requestAnimationFrame(this.tick);
+    const t0 = performance.now();
     const dtMs = now - this.last;
     this.last = now;
     const dt = Math.min(Math.max(dtMs / 1000, 0), 0.1);
@@ -448,6 +453,7 @@ export class Engine {
     const ev = this.events;
     ev.tracked = ev.faceFound = ev.faceLost = ev.mouthOpened = ev.mouthClosed = ev.blinked = ev.browsRaised = false;
 
+    this.stats.cpuMs = this.cpuMs.push(performance.now() - t0);
     this.stats.fps = this.rafFps.rate;
     this.stats.trackFps = this.trackFps.rate;
     this.stats.faceMs = this.faceMs.value;

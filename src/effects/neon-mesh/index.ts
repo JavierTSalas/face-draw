@@ -24,6 +24,22 @@ vec4 mainImage(vec2 uv) {
 }
 `;
 
+/** The tessellation lists shared triangle edges twice; draw each once. */
+function uniqueEdges(edges: Uint16Array) {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (let i = 0; i < edges.length; i += 2) {
+    const a = Math.min(edges[i], edges[i + 1]);
+    const b = Math.max(edges[i], edges[i + 1]);
+    const key = a * 1024 + b;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(a, b);
+  }
+  return new Uint16Array(out);
+}
+const MESH = uniqueEdges(TESSELATION_EDGES);
+
 const FEATURES = [FACE_OVAL_EDGES, LIPS_EDGES, LEFT_EYE_EDGES, RIGHT_EYE_EDGES, LEFT_EYEBROW_EDGES, RIGHT_EYEBROW_EDGES];
 
 const THEMES = [
@@ -71,7 +87,7 @@ export default defineEffect({
           features.clear();
           for (const face of f.faces) {
             const w = Math.max(0.6, face.eyeDist / 90);
-            addEdges(mesh, face, TESSELATION_EDGES, 0.8 * w, hsl(hue, 1, 0.5), 0.45);
+            addEdges(mesh, face, MESH, 0.8 * w, hsl(hue, 1, 0.5), 0.45);
             const fc = hsl(hue + 0.15, 1, 0.6);
             for (const e of FEATURES) addEdges(features, face, e, 2.2 * w, fc, 1);
           }

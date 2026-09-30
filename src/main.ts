@@ -150,7 +150,7 @@ setInterval(() => {
   fpsEl.textContent = String(Math.round(s.fps));
   if (!settings.hud) return;
   hudEl.textContent =
-    `render  ${s.fps.toFixed(0)} fps\n` +
+    `render  ${s.fps.toFixed(0)} fps  cpu ${s.cpuMs.toFixed(1)} ms\n` +
     `track   ${s.trackFps.toFixed(0)} fps  ${s.faceMs.toFixed(1)} ms\n` +
     (s.segMs ? `segment ${s.segMs.toFixed(1)} ms\n` : '') +
     `tracker ${s.delegate} / ${s.mode}\n` +
