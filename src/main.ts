@@ -222,6 +222,7 @@ async function start() {
   startEl.hidden = true;
   ui.hidden = false;
   carousel.select(initialEffectIndex());
+  engine.warmUp(EFFECTS);
   if (!trackerReady) {
     hint('Loading face tracker…', 60_000);
     await trackerPromise;

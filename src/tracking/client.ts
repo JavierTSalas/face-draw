@@ -28,7 +28,7 @@ export interface Tracker {
 class WorkerTracker implements Tracker {
   readonly mode = 'worker' as const;
   delegate: Delegate = 'GPU';
-  private pending: ((o: TrackOutput) => void) | null = null;
+  private pending: { resolve: (o: TrackOutput) => void; reject: (e: Error) => void } | null = null;
   onNotice: (msg: string) => void = () => {};
 
   private constructor(private worker: Worker) {}
@@ -54,6 +54,7 @@ class WorkerTracker implements Tracker {
           clearTimeout(timeout);
           t.delegate = msg.delegate;
           worker.onmessage = (ev: MessageEvent<FromWorker>) => t.handle(ev.data);
+          worker.onerror = (ev) => t.fail(new Error(ev.message || 'Tracker worker crashed'));
           resolve(t);
         } else if (msg.type === 'error' && msg.fatal) {
           clearTimeout(timeout);
@@ -77,15 +78,22 @@ class WorkerTracker implements Tracker {
     } else if (msg.type === 'result') {
       const p = this.pending;
       this.pending = null;
-      p?.({ bitmap: msg.bitmap, result: msg.result });
+      p?.resolve({ bitmap: msg.bitmap, result: msg.result });
     } else if (msg.type === 'error') {
       this.onNotice(msg.message);
     }
   }
 
+  /** Reject the in-flight frame so the caller's pipeline never stalls. */
+  fail(err: Error) {
+    const p = this.pending;
+    this.pending = null;
+    p?.reject(err);
+  }
+
   track(bitmap: ImageBitmap, ts: number, wantMask: boolean): Promise<TrackOutput> {
-    return new Promise((resolve) => {
-      this.pending = resolve;
+    return new Promise((resolve, reject) => {
+      this.pending = { resolve, reject };
       this.post({ type: 'frame', bitmap, ts, wantMask }, [bitmap]);
     });
   }
@@ -96,6 +104,7 @@ class WorkerTracker implements Tracker {
 
   dispose() {
     this.worker.terminate();
+    this.fail(new Error('Tracker disposed'));
   }
 }
 

@@ -257,6 +257,26 @@ export class Engine {
     this.active = null;
   }
 
+  /**
+   * Compile effect shaders ahead of time, one per idle slot, so switching
+   * effects never stalls a frame on shader compilation.
+   */
+  warmUp(defs: readonly EffectDefinition[]) {
+    const r = this.renderer;
+    if (!r) return;
+    const queue = defs.filter((d) => d.shader).map((d) => d.shader!);
+    const idle =
+      (window as Window & { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback ??
+      ((cb: () => void) => window.setTimeout(cb, 120));
+    const next = () => {
+      const src = queue.shift();
+      if (!src) return;
+      r.getProgram(src);
+      idle(next);
+    };
+    idle(next);
+  }
+
   pointerDown(x: number, y: number) {
     this.sfx.unlock();
     const a = this.active;
