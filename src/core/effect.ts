@@ -2,6 +2,7 @@
 // See docs/ADDING_EFFECTS.md for a walkthrough.
 import type { CameraView, Face } from './face';
 import type { ParticleConfig, ParticleSystem } from './gl/particles';
+import type { LineBatch, LineConfig } from './gl/lines';
 import type { FaceStore } from './faceStore';
 import type { Sfx } from './sfx';
 
@@ -43,6 +44,8 @@ export interface Frame {
 export interface EffectContext {
   /** Create a GPU particle system that is drawn above the camera layer. */
   particles(config?: ParticleConfig): ParticleSystem;
+  /** Create a GPU line batch (neon wireframes, beams). Cleared by you. */
+  lines(config?: LineConfig): LineBatch;
   /** Faces the user cut out and saved (shared by all effects and games). */
   faces: FaceStore;
   /** Tiny synth for game sounds. */

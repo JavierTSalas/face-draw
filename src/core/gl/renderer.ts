@@ -1,7 +1,11 @@
 // WebGL2 layer: camera pass (with optional effect shader) + GPU particles.
 import type { Frame, Uniforms } from '../effect';
 import { buildFragment, DEFAULT_SHADER, FULLSCREEN_VS } from './shaders';
-import { INSTANCE_FLOATS, SHAPE_IDS, type ParticleSystem } from './particles';
+import { INSTANCE_FLOATS, SHAPE_IDS, ParticleSystem } from './particles';
+import { LINE_FLOATS, LineBatch } from './lines';
+
+/** Things effects can create that the GPU draws above the camera layer. */
+export type Layer = ParticleSystem | LineBatch;
 
 const PARTICLE_VS = /* glsl */ `#version 300 es
 precision highp float;
@@ -75,6 +79,63 @@ void main() {
 }
 `;
 
+const LINE_VS = /* glsl */ `#version 300 es
+precision highp float;
+layout(location = 0) in vec2 a_corner;
+layout(location = 1) in vec4 a_seg;     // x0, y0, x1, y1
+layout(location = 2) in float a_width;
+layout(location = 3) in vec4 a_color;
+uniform vec2 u_resolution;
+uniform float u_glow;
+out vec2 v_p;
+out float v_halfLen;
+out float v_halfW;
+out vec4 v_color;
+void main() {
+  vec2 a = a_seg.xy, b = a_seg.zw;
+  vec2 d = b - a;
+  float len = length(d);
+  vec2 dir = len > 1e-3 ? d / len : vec2(1.0, 0.0);
+  vec2 nrm = vec2(-dir.y, dir.x);
+  float hw = a_width * 0.5;
+  float ext = hw * (1.0 + u_glow) + 1.5;
+  vec2 local = vec2(a_corner.x * (len * 0.5 + ext), a_corner.y * ext);
+  vec2 p = (a + b) * 0.5 + dir * local.x + nrm * local.y;
+  v_p = local;
+  v_halfLen = len * 0.5;
+  v_halfW = hw;
+  v_color = a_color;
+  vec2 clip = p / u_resolution * 2.0 - 1.0;
+  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+}
+`;
+
+const LINE_FS = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 v_p;
+in float v_halfLen;
+in float v_halfW;
+in vec4 v_color;
+uniform float u_glow;
+uniform float u_core;
+out vec4 outColor;
+void main() {
+  // Distance to the segment (capsule).
+  float dx = max(abs(v_p.x) - v_halfLen, 0.0);
+  float dist = length(vec2(dx, v_p.y));
+  float core = 1.0 - smoothstep(v_halfW - 0.75, v_halfW + 0.75, dist);
+  float halo = 0.0;
+  if (u_glow > 0.0) {
+    float r = dist / (v_halfW * (1.0 + u_glow));
+    halo = exp(-r * r * 3.0) * 0.55;
+  }
+  float a = max(core, halo) * v_color.a;
+  if (a < 0.003) discard;
+  vec3 rgb = mix(v_color.rgb, vec3(1.0), core * u_core);
+  outColor = vec4(rgb * a, a);
+}
+`;
+
 const STD_UNIFORMS = [
   'u_camera',
   'u_mask',
@@ -101,10 +162,10 @@ interface CameraProgram {
   custom: Map<string, WebGLUniformLocation | null>;
 }
 
-interface SystemGL {
+interface LayerGL {
   vao: WebGLVertexArrayObject;
   buf: WebGLBuffer;
-  capacity: number;
+  version: number;
 }
 
 export class GLRenderer {
@@ -119,8 +180,14 @@ export class GLRenderer {
     stretch: WebGLUniformLocation | null;
     shape: WebGLUniformLocation | null;
   };
+  private lineProg!: WebGLProgram;
+  private lLoc!: {
+    res: WebGLUniformLocation | null;
+    glow: WebGLUniformLocation | null;
+    core: WebGLUniformLocation | null;
+  };
   private quadBuf!: WebGLBuffer;
-  private systems = new Map<ParticleSystem, SystemGL>();
+  private layers = new Map<Layer, LayerGL>();
   private lost = false;
   hasCamera = false;
   hasMask = false;
@@ -153,7 +220,7 @@ export class GLRenderer {
   private init() {
     const gl = this.gl;
     this.programs.clear();
-    this.systems.clear();
+    this.layers.clear();
     this.hasCamera = false;
     this.hasMask = false;
     this.emptyVao = gl.createVertexArray()!;
@@ -171,6 +238,12 @@ export class GLRenderer {
       res: gl.getUniformLocation(this.particleProg, 'u_resolution'),
       stretch: gl.getUniformLocation(this.particleProg, 'u_stretch'),
       shape: gl.getUniformLocation(this.particleProg, 'u_shape'),
+    };
+    this.lineProg = this.link(LINE_VS, LINE_FS);
+    this.lLoc = {
+      res: gl.getUniformLocation(this.lineProg, 'u_resolution'),
+      glow: gl.getUniformLocation(this.lineProg, 'u_glow'),
+      core: gl.getUniformLocation(this.lineProg, 'u_core'),
     };
     this.quadBuf = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
@@ -266,7 +339,7 @@ export class GLRenderer {
     f: Frame,
     shader: string | undefined,
     custom: Uniforms | undefined,
-    systems: readonly ParticleSystem[],
+    layers: readonly Layer[],
     hideCamera: boolean,
   ) {
     if (this.lost) return;
@@ -280,7 +353,7 @@ export class GLRenderer {
     } else {
       this.drawCamera(f, shader, custom);
     }
-    if (systems.length) this.drawParticles(f, systems);
+    if (layers.length) this.drawLayers(f, layers);
   }
 
   private drawCamera(f: Frame, shader: string | undefined, custom: Uniforms | undefined) {
@@ -339,9 +412,9 @@ export class GLRenderer {
     }
   }
 
-  private systemGL(s: ParticleSystem): SystemGL {
-    let sg = this.systems.get(s);
-    if (sg) return sg;
+  private layerGL(layer: Layer): LayerGL {
+    let lg = this.layers.get(layer);
+    if (lg) return lg;
     const gl = this.gl;
     const vao = gl.createVertexArray()!;
     gl.bindVertexArray(vao);
@@ -350,54 +423,75 @@ export class GLRenderer {
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     const buf = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, s.instances.byteLength, gl.DYNAMIC_DRAW);
-    const stride = INSTANCE_FLOATS * 4;
-    gl.enableVertexAttribArray(1);
-    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, stride, 0);
-    gl.vertexAttribDivisor(1, 1);
-    gl.enableVertexAttribArray(2);
-    gl.vertexAttribPointer(2, 4, gl.FLOAT, false, stride, 16);
-    gl.vertexAttribDivisor(2, 1);
-    gl.enableVertexAttribArray(3);
-    gl.vertexAttribPointer(3, 2, gl.FLOAT, false, stride, 32);
-    gl.vertexAttribDivisor(3, 1);
+    const attrib = (loc: number, size: number, stride: number, offset: number) => {
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride, offset);
+      gl.vertexAttribDivisor(loc, 1);
+    };
+    if (layer instanceof ParticleSystem) {
+      gl.bufferData(gl.ARRAY_BUFFER, layer.instances.byteLength, gl.DYNAMIC_DRAW);
+      const stride = INSTANCE_FLOATS * 4;
+      attrib(1, 4, stride, 0);
+      attrib(2, 4, stride, 16);
+      attrib(3, 2, stride, 32);
+    } else {
+      gl.bufferData(gl.ARRAY_BUFFER, layer.data.byteLength, gl.DYNAMIC_DRAW);
+      const stride = LINE_FLOATS * 4;
+      attrib(1, 4, stride, 0);
+      attrib(2, 1, stride, 16);
+      attrib(3, 4, stride, 20);
+    }
     gl.bindVertexArray(null);
-    sg = { vao, buf, capacity: s.max };
-    this.systems.set(s, sg);
-    return sg;
+    lg = { vao, buf, version: -1 };
+    this.layers.set(layer, lg);
+    return lg;
   }
 
-  private drawParticles(f: Frame, systems: readonly ParticleSystem[]) {
+  private drawLayers(f: Frame, layers: readonly Layer[]) {
     const gl = this.gl;
-    gl.useProgram(this.particleProg);
-    gl.uniform2f(this.pLoc.res, f.width, f.height);
     gl.enable(gl.BLEND);
-    for (const s of systems) {
-      const n = s.pack();
+    let current: WebGLProgram | null = null;
+    for (const layer of layers) {
+      const isParticles = layer instanceof ParticleSystem;
+      const n = isParticles ? layer.pack() : layer.count;
       if (n === 0) continue;
-      const sg = this.systemGL(s);
-      gl.bindVertexArray(sg.vao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, sg.buf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, s.instances, 0, n * INSTANCE_FLOATS);
-      if (s.blend === 'add') gl.blendFunc(gl.ONE, gl.ONE);
-      else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-      gl.uniform1i(this.pLoc.shape, SHAPE_IDS[s.shape]);
-      gl.uniform1f(this.pLoc.stretch, s.stretch);
+      const lg = this.layerGL(layer);
+      const prog = isParticles ? this.particleProg : this.lineProg;
+      if (prog !== current) {
+        gl.useProgram(prog);
+        gl.uniform2f(isParticles ? this.pLoc.res : this.lLoc.res, f.width, f.height);
+        current = prog;
+      }
+      gl.bindVertexArray(lg.vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, lg.buf);
+      gl.blendFunc(gl.ONE, layer.blend === 'add' ? gl.ONE : gl.ONE_MINUS_SRC_ALPHA);
+      if (isParticles) {
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, layer.instances, 0, n * INSTANCE_FLOATS);
+        gl.uniform1i(this.pLoc.shape, SHAPE_IDS[layer.shape]);
+        gl.uniform1f(this.pLoc.stretch, layer.stretch);
+      } else {
+        if (lg.version !== layer.version) {
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, layer.data, 0, n * LINE_FLOATS);
+          lg.version = layer.version;
+        }
+        gl.uniform1f(this.lLoc.glow, layer.glow);
+        gl.uniform1f(this.lLoc.core, layer.core);
+      }
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
     }
     gl.bindVertexArray(null);
     gl.disable(gl.BLEND);
   }
 
-  /** Free GPU buffers of systems that belong to a finished effect. */
-  release(systems: readonly ParticleSystem[]) {
+  /** Free GPU buffers of layers that belong to a finished effect. */
+  release(layers: readonly Layer[]) {
     const gl = this.gl;
-    for (const s of systems) {
-      const sg = this.systems.get(s);
-      if (!sg) continue;
-      gl.deleteBuffer(sg.buf);
-      gl.deleteVertexArray(sg.vao);
-      this.systems.delete(s);
+    for (const l of layers) {
+      const lg = this.layers.get(l);
+      if (!lg) continue;
+      gl.deleteBuffer(lg.buf);
+      gl.deleteVertexArray(lg.vao);
+      this.layers.delete(l);
     }
   }
 }

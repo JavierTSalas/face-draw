@@ -3,8 +3,9 @@ import { Camera, type Facing } from './camera';
 import type { EffectContext, EffectDefinition, EffectInstance, Frame, FrameEvents } from './effect';
 import { CameraView, Face } from './face';
 import { FaceStore } from './faceStore';
-import { GLRenderer } from './gl/renderer';
+import { GLRenderer, type Layer } from './gl/renderer';
 import { ParticleSystem, type ParticleConfig } from './gl/particles';
+import { LineBatch, type LineConfig } from './gl/lines';
 import { AdaptiveScale, Ema, RateMeter } from './perf';
 import type { Settings } from './settings';
 import { Sfx } from './sfx';
@@ -32,7 +33,7 @@ export interface EngineUI {
 interface ActiveEffect {
   def: EffectDefinition;
   inst: EffectInstance;
-  systems: ParticleSystem[];
+  layers: Layer[];
   start: number;
 }
 
@@ -167,13 +168,18 @@ export class Engine {
 
   setEffect(def: EffectDefinition) {
     this.disposeEffect();
-    const systems: ParticleSystem[] = [];
+    const layers: Layer[] = [];
     const id = def.id;
     const ctx: EffectContext = {
       particles: (cfg?: ParticleConfig) => {
         const s = new ParticleSystem(cfg);
-        systems.push(s);
+        layers.push(s);
         return s;
+      },
+      lines: (cfg?: LineConfig) => {
+        const l = new LineBatch(cfg);
+        layers.push(l);
+        return l;
       },
       faces: this.faces,
       sfx: this.sfx,
@@ -206,7 +212,7 @@ export class Engine {
       this.ui.toast(`${def.name} failed to start`);
       inst = {};
     }
-    this.active = { def, inst, systems, start: performance.now() };
+    this.active = { def, inst, layers, start: performance.now() };
     this.wantMask = !!def.needs?.segmentation;
     const nf = Math.min(MAX_FACES, Math.max(1, def.needs?.faces ?? 1));
     if (nf !== this.numFaces) {
@@ -228,7 +234,7 @@ export class Engine {
     } catch (err) {
       console.error(err);
     }
-    this.renderer?.release(a.systems);
+    this.renderer?.release(a.layers);
     this.active = null;
   }
 
@@ -402,7 +408,7 @@ export class Engine {
       } catch (err) {
         console.error(`[effect ${a.def.id}] update`, err);
       }
-      for (const s of a.systems) s.update(dt);
+      for (const l of a.layers) if (l instanceof ParticleSystem) l.update(dt);
     }
 
     // GPU layer
@@ -413,7 +419,7 @@ export class Engine {
       } catch (err) {
         console.error(err);
       }
-      r.render(f, a?.def.shader, custom, a?.systems ?? [], !!a?.def.hideCamera);
+      r.render(f, a?.def.shader, custom, a?.layers ?? [], !!a?.def.hideCamera);
     }
 
     // 2D overlay
@@ -425,7 +431,7 @@ export class Engine {
       g.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
       g.setTransform(this.overlayScale, 0, 0, this.overlayScale, 0, 0);
       if (fallback && !a?.def.hideCamera) this.view.draw(g);
-      if (fallback && a) drawParticles2D(g, a.systems);
+      if (fallback && a) drawLayers2D(g, a.layers);
       if (drawFn) {
         try {
           drawFn.call(a!.inst, g, f);
@@ -475,10 +481,25 @@ function blankEvents(): FrameEvents {
   };
 }
 
-/** Minimal particle drawing for devices without WebGL2. */
-function drawParticles2D(g: CanvasRenderingContext2D, systems: ParticleSystem[]) {
+/** Minimal particle/line drawing for devices without WebGL2. */
+function drawLayers2D(g: CanvasRenderingContext2D, layers: Layer[]) {
   g.save();
-  for (const s of systems) {
+  for (const s of layers) {
+    if (s instanceof LineBatch) {
+      g.globalCompositeOperation = s.blend === 'add' ? 'lighter' : 'source-over';
+      const d = s.data;
+      for (let i = 0; i < s.count; i++) {
+        const o = i * 9;
+        g.globalAlpha = d[o + 8];
+        g.strokeStyle = `rgb(${(d[o + 5] * 255) | 0},${(d[o + 6] * 255) | 0},${(d[o + 7] * 255) | 0})`;
+        g.lineWidth = d[o + 4];
+        g.beginPath();
+        g.moveTo(d[o], d[o + 1]);
+        g.lineTo(d[o + 2], d[o + 3]);
+        g.stroke();
+      }
+      continue;
+    }
     const n = s.pack();
     const d = s.instances;
     g.globalCompositeOperation = s.blend === 'add' ? 'lighter' : 'source-over';

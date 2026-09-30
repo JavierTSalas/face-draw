@@ -33,6 +33,7 @@ export class TrackerCore {
   private landmarker!: FaceLandmarker;
   private segmenter: ImageSegmenter | null = null;
   private segLoading = false;
+  private segFailed = false;
   private lastTs = 0;
   private maskAccum: Float32Array | null = null;
   private blendMap: number[] | null = null;
@@ -80,19 +81,30 @@ export class TrackerCore {
     await this.landmarker.setOptions({ numFaces: n });
   }
 
-  private loadSegmenter() {
-    if (this.segLoading || this.segmenter) return;
+  private async loadSegmenter() {
+    if (this.segLoading || this.segmenter || this.segFailed) return;
     this.segLoading = true;
-    ImageSegmenter.createFromOptions(this.fileset, {
-      baseOptions: { modelAssetPath: this.init.segModel, delegate: this.delegate },
-      canvas: this.delegate === 'GPU' ? makeCanvas() : undefined,
-      runningMode: 'VIDEO',
-      outputConfidenceMasks: true,
-      outputCategoryMask: false,
-    })
-      .then((s) => (this.segmenter = s))
-      .catch((err) => console.warn('[tracker] segmenter failed to load', err))
-      .finally(() => (this.segLoading = false));
+    try {
+      if (this.useModuleLoader) {
+        // MediaPipe clears globalThis.ModuleFactory after creating a task and
+        // an ES module is only evaluated once, so hand it back for task #2.
+        const mod = await import(/* @vite-ignore */ this.fileset.wasmLoaderPath);
+        const g = globalThis as { ModuleFactory?: unknown };
+        g.ModuleFactory = mod.default ?? g.ModuleFactory;
+      }
+      this.segmenter = await ImageSegmenter.createFromOptions(this.fileset, {
+        baseOptions: { modelAssetPath: this.init.segModel, delegate: this.delegate },
+        canvas: this.delegate === 'GPU' ? makeCanvas() : undefined,
+        runningMode: 'VIDEO',
+        outputConfidenceMasks: true,
+        outputCategoryMask: false,
+      });
+    } catch (err) {
+      this.segFailed = true;
+      console.warn('[tracker] segmenter failed to load; effects fall back to a head-shaped mask', err);
+    } finally {
+      this.segLoading = false;
+    }
   }
 
   process(image: ImageInput, ts: number, wantMask: boolean): TrackResult {
